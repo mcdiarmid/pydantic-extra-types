@@ -5,11 +5,12 @@ formats, such as IEEE 802 MAC-48, EUI-48, EUI-64, or a 20-octet format.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import PydanticCustomError, core_schema
 
+VIABLE_OCTET_COUNTS = 6, 8, 20
 
 class MacAddress(str):
     """Represents a MAC address and provides methods for conversion, validation, and serialization.
@@ -49,7 +50,7 @@ class MacAddress(str):
         )
 
     @classmethod
-    def _validate(cls, __input_value: str, _: Any) -> str:
+    def _validate(cls, __input_value: str | int | Sequence[int], _: Any) -> str:
         """
         Validate a MAC Address from the provided str value.
 
@@ -61,65 +62,72 @@ class MacAddress(str):
             str: The parsed MAC address.
 
         """
-        return cls.validate_mac_address(__input_value.encode())
+        return cls.validate_mac_address(__input_value)
 
     @staticmethod
-    def validate_mac_address(value: bytes) -> str:
+    def validate_mac_address(value: str | int | Sequence[int]) -> str:
         """
         Validate a MAC Address from the provided byte value.
         """
-        if len(value) < 14:
+        # Split by delimeter
+        num_octets = 0
+        if isinstance(value, str):
+            delim = ''
+            if value[2] in ':-':
+                delim = value[2]
+            elif value[4] == '.':
+                delim = value[4]
+
+            # Entire string should be hex after removing delimeter
+            try:
+                value.replace(delim, '')
+                num_octets = len(value) // 2
+                value = int(value, 16)
+            except ValueError:
+                raise PydanticCustomError(
+                    'mac_address_format',
+                    'MAC Address string must contain only hexadecimal characters '
+                    'delimited by one of ":", "-", or ".". '
+                    '{input=} does not follow this formatting convention.',
+                    {'input': value}
+                )
+
+        # Convert to bytes, zero-pad to nearest viable octet length
+        if isinstance(value, int):
+            min_octets, rem = divmod(value.bit_length(), 8)
+            min_octets += rem > 0
+
+            if min_octets > max(VIABLE_OCTET_COUNTS):
+                num_octets = min_octets
+
+            if num_octets == 0:
+                for num_octets in VIABLE_OCTET_COUNTS:
+                    if num_octets >= min_octets:
+                        break
+
+            value = value.to_bytes(num_octets, 'big')
+
+        # At this point we should have a Sequence[int] format
+        if not isinstance(value, Sequence) or not isinstance(value[0], int):
             raise PydanticCustomError(
-                'mac_address_len',
-                'Length for a {mac_address} MAC address must be {required_length}',
-                {'mac_address': value.decode(), 'required_length': 14},
+                'mac_address_type',
+                'MAC Address ({input=}) not of type str, int, or Sequence[int].',
+                {'input': value} 
             )
 
-        if value[2] in [ord(':'), ord('-')]:
-            if (len(value) + 1) % 3 != 0:
-                raise PydanticCustomError(
-                    'mac_address_format', 'Must have the format xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx'
-                )
-            n = (len(value) + 1) // 3
-            if n not in (6, 8, 20):
-                raise PydanticCustomError(
-                    'mac_address_format',
-                    'Length for a {mac_address} MAC address must be {required_length}',
-                    {'mac_address': value.decode(), 'required_length': (6, 8, 20)},
-                )
-            mac_address = bytearray(n)
-            x = 0
-            for i in range(n):
-                try:
-                    byte_value = int(value[x : x + 2], 16)
-                    mac_address[i] = byte_value
-                    x += 3
-                except ValueError as e:
-                    raise PydanticCustomError('mac_address_format', 'Unrecognized format') from e
+        # Sanity check our octets are actually octets
+        if any([octet > 0xff for octet in value]):
+            raise PydanticCustomError(
+                'mac_address_format',
+                'Octets are strictly 8-bit, cannot be bigger than 255.'
+            )
 
-        elif value[4] == ord('.'):
-            if (len(value) + 1) % 5 != 0:
-                raise PydanticCustomError('mac_address_format', 'Must have the format xx.xx.xx.xx.xx.xx')
-            n = 2 * (len(value) + 1) // 5
-            if n not in (6, 8, 20):
-                raise PydanticCustomError(
-                    'mac_address_format',
-                    'Length for a {mac_address} MAC address must be {required_length}',
-                    {'mac_address': value.decode(), 'required_length': (6, 8, 20)},
-                )
-            mac_address = bytearray(n)
-            x = 0
-            for i in range(0, n, 2):
-                try:
-                    byte_value = int(value[x : x + 2], 16)
-                    mac_address[i] = byte_value
-                    byte_value = int(value[x + 2 : x + 4], 16)
-                    mac_address[i + 1] = byte_value
-                    x += 5
-                except ValueError as e:
-                    raise PydanticCustomError('mac_address_format', 'Unrecognized format') from e
+        # Must have a Sequence of ints, finally length Check
+        if len(value) not in VIABLE_OCTET_COUNTS:
+            raise PydanticCustomError(
+                'mac_address_format',
+                'Number of octets in MAC Address must be in {valid} got {n}.',
+                {'valid': VIABLE_OCTET_COUNTS, 'n': len(value)}
+            )
 
-        else:
-            raise PydanticCustomError('mac_address_format', 'Unrecognized format')
-
-        return ':'.join(f'{b:02x}' for b in mac_address)
+        return bytes(value).hex(':')
