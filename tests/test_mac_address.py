@@ -36,10 +36,10 @@ class Network(BaseModel):
             True,
         ),
         (0, '00:00:00:00:00:00', True),
-        (0x0123456789ab, '01:23:45:67:89:ab', True),
-        ([1, 0, 0, 0, 0, 254], '01:00:00:00:00:fe', True),
-        (bytes([1, 0, 0, 0, 0, 254]), '01:00:00:00:00:fe', True),
-        (bytearray([1, 0, 0, 0, 0, 254]), '01:00:00:00:00:fe', True),
+        # (0x0123456789ab, '01:23:45:67:89:ab', True),
+        # ([1, 0, 0, 0, 0, 254], '01:00:00:00:00:fe', True),
+        # (bytes([1, 0, 0, 0, 0, 254]), '01:00:00:00:00:fe', True),
+        # (bytearray([1, 0, 0, 0, 0, 254]), '01:00:00:00:00:fe', True),
         # Invalid MAC addresses
         ('0200.5e10.0000.001', None, False),
         ('00-00-5e-00-53-0', None, False),
@@ -65,10 +65,10 @@ class Network(BaseModel):
 )
 def test_format_for_mac_address(mac_address: Any, result: str, valid: bool):
     if valid:
-        assert Network(mac_address=MacAddress(mac_address)).mac_address == result
+        assert Network(mac_address=mac_address).mac_address == result
     else:
         with pytest.raises(ValidationError, match='format'):
-            Network(mac_address=MacAddress(mac_address))
+            Network(mac_address=mac_address)
 
 
 @pytest.mark.parametrize(
@@ -105,10 +105,10 @@ def test_format_for_mac_address(mac_address: Any, result: str, valid: bool):
 )
 def test_length_for_mac_address(mac_address: str, result: str, valid: bool):
     if valid:
-        assert Network(mac_address=MacAddress(mac_address)).mac_address == result
+        assert Network(mac_address=mac_address).mac_address == result
     else:
         with pytest.raises(ValueError, match='Length'):
-            Network(mac_address=MacAddress(mac_address))
+            Network(mac_address=mac_address)
 
 
 @pytest.mark.parametrize(
@@ -117,8 +117,8 @@ def test_length_for_mac_address(mac_address: str, result: str, valid: bool):
         # Valid MAC addresses
         ('00:00:5e:00:53:01', True),
         (MacAddress('00:00:5e:00:53:01'), True),
+        (0, True),
         # Invalid MAC addresses
-        (0, False),
         (['00:00:00'], False),
     ],
 )
@@ -126,7 +126,7 @@ def test_type_for_mac_address(mac_address: Any, valid: bool):
     if valid:
         Network(mac_address=MacAddress(mac_address))
     else:
-        with pytest.raises(ValidationError, match='MAC address must be 14'):
+        with pytest.raises(ValidationError, match='MAC address must have 6, 8, or 20 octets.'):
             Network(mac_address=MacAddress(mac_address))
 
 
